@@ -156,7 +156,8 @@ class OnBeanCondition extends FilteringSpringBootCondition implements Configurat
 		Set<Class<?>> parameterizedContainers = spec.getParameterizedContainers();
 		if (spec.getStrategy() == SearchStrategy.ANCESTORS) {
 			BeanFactory parent = beanFactory.getParentBeanFactory();
-			Assert.isInstanceOf(ConfigurableListableBeanFactory.class, parent, "Unable to use SearchStrategy.PARENTS");
+			Assert.isInstanceOf(ConfigurableListableBeanFactory.class, parent,
+					"Unable to use SearchStrategy.ANCESTORS");
 			beanFactory = (ConfigurableListableBeanFactory) parent;
 		}
 		MatchResult result = new MatchResult();
@@ -375,9 +376,7 @@ class OnBeanCondition extends FilteringSpringBootCondition implements Configurat
 			return result;
 		}
 		result = (result != null) ? result : new LinkedHashSet<>();
-		for (String addition : additional) {
-			result.add(addition);
-		}
+		Collections.addAll(result, additional);
 		return result;
 	}
 
@@ -453,9 +452,7 @@ class OnBeanCondition extends FilteringSpringBootCondition implements Configurat
 		}
 
 		private void merge(Set<String> result, String... additional) {
-			for (String addition : additional) {
-				result.add(addition);
-			}
+			Collections.addAll(result, additional);
 		}
 
 		private Set<Class<?>> resolveWhenPossible(Set<String> classNames) {

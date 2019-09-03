@@ -284,7 +284,6 @@ public abstract class EndpointDiscoverer<E extends ExposableEndpoint<O>, O exten
 			return isFilterMatch(instance, endpoint);
 		}
 		return false;
-
 	}
 
 	private boolean isFilterMatch(EndpointFilter<E> filter, EndpointBean endpointBean) {
@@ -466,8 +465,8 @@ public abstract class EndpointDiscoverer<E extends ExposableEndpoint<O>, O exten
 		ExtensionBean(String beanName, Object bean) {
 			this.bean = bean;
 			this.beanName = beanName;
-			MergedAnnotation<EndpointExtension> extensionAnnotation = MergedAnnotations.from(bean.getClass())
-					.get(EndpointExtension.class);
+			MergedAnnotation<EndpointExtension> extensionAnnotation = MergedAnnotations
+					.from(bean.getClass(), SearchStrategy.TYPE_HIERARCHY).get(EndpointExtension.class);
 			Class<?> endpointType = extensionAnnotation.getClass("endpoint");
 			MergedAnnotation<Endpoint> endpointAnnotation = MergedAnnotations
 					.from(endpointType, SearchStrategy.TYPE_HIERARCHY).get(Endpoint.class);
