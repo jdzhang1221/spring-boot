@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,25 +17,28 @@
 package org.springframework.boot.actuate.autoconfigure.health;
 
 import java.util.Collections;
-import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import org.springframework.boot.actuate.autoconfigure.endpoint.EndpointAutoConfiguration;
+import org.springframework.boot.actuate.autoconfigure.endpoint.web.WebEndpointAutoConfiguration;
+import org.springframework.boot.actuate.endpoint.ApiVersion;
 import org.springframework.boot.actuate.endpoint.SecurityContext;
 import org.springframework.boot.actuate.endpoint.web.WebEndpointResponse;
-import org.springframework.boot.actuate.health.AbstractHealthAggregator;
+import org.springframework.boot.actuate.endpoint.web.WebServerNamespace;
 import org.springframework.boot.actuate.health.DefaultHealthContributorRegistry;
 import org.springframework.boot.actuate.health.DefaultReactiveHealthContributorRegistry;
 import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthAggregator;
 import org.springframework.boot.actuate.health.HealthComponent;
 import org.springframework.boot.actuate.health.HealthContributorRegistry;
 import org.springframework.boot.actuate.health.HealthEndpoint;
 import org.springframework.boot.actuate.health.HealthEndpointGroups;
+import org.springframework.boot.actuate.health.HealthEndpointGroupsPostProcessor;
 import org.springframework.boot.actuate.health.HealthEndpointWebExtension;
 import org.springframework.boot.actuate.health.HealthIndicator;
-import org.springframework.boot.actuate.health.HealthStatusHttpMapper;
 import org.springframework.boot.actuate.health.HttpCodeStatusMapper;
 import org.springframework.boot.actuate.health.NamedContributor;
 import org.springframework.boot.actuate.health.ReactiveHealthContributorRegistry;
@@ -43,13 +46,17 @@ import org.springframework.boot.actuate.health.ReactiveHealthEndpointWebExtensio
 import org.springframework.boot.actuate.health.ReactiveHealthIndicator;
 import org.springframework.boot.actuate.health.Status;
 import org.springframework.boot.actuate.health.StatusAggregator;
+import org.springframework.boot.actuate.health.SystemHealth;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.context.runner.ReactiveWebApplicationContextRunner;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
@@ -59,17 +66,19 @@ import static org.mockito.Mockito.mock;
  * @author Phillip Webb
  * @author Andy Wilkinson
  * @author Stephane Nicoll
+ * @author Scott Frederick
  */
-@SuppressWarnings("deprecation")
 class HealthEndpointAutoConfigurationTests {
 
-	private WebApplicationContextRunner contextRunner = new WebApplicationContextRunner()
+	private final WebApplicationContextRunner contextRunner = new WebApplicationContextRunner()
 			.withUserConfiguration(HealthIndicatorsConfiguration.class).withConfiguration(AutoConfigurations
 					.of(HealthContributorAutoConfiguration.class, HealthEndpointAutoConfiguration.class));
 
-	private ReactiveWebApplicationContextRunner reactiveContextRunner = new ReactiveWebApplicationContextRunner()
-			.withUserConfiguration(HealthIndicatorsConfiguration.class).withConfiguration(AutoConfigurations
-					.of(HealthContributorAutoConfiguration.class, HealthEndpointAutoConfiguration.class));
+	private final ReactiveWebApplicationContextRunner reactiveContextRunner = new ReactiveWebApplicationContextRunner()
+			.withUserConfiguration(HealthIndicatorsConfiguration.class)
+			.withConfiguration(AutoConfigurations.of(HealthContributorAutoConfiguration.class,
+					HealthEndpointAutoConfiguration.class, WebEndpointAutoConfiguration.class,
+					EndpointAutoConfiguration.class));
 
 	@Test
 	void runWhenHealthEndpointIsDisabledDoesNotCreateBeans() {
@@ -86,22 +95,6 @@ class HealthEndpointAutoConfigurationTests {
 	}
 
 	@Test
-	void runWhenHasHealthAggregatorAdaptsToStatusAggregator() {
-		this.contextRunner.withUserConfiguration(HealthAggregatorConfiguration.class).run((context) -> {
-			StatusAggregator aggregator = context.getBean(StatusAggregator.class);
-			assertThat(aggregator.getAggregateStatus(Status.UP, Status.DOWN)).isEqualTo(Status.UNKNOWN);
-		});
-	}
-
-	@Test
-	void runWhenHasHealthStatusHttpMapperAdaptsToHttpCodeStatusMapper() {
-		this.contextRunner.withUserConfiguration(HealthStatusHttpMapperConfiguration.class).run((context) -> {
-			HttpCodeStatusMapper mapper = context.getBean(HttpCodeStatusMapper.class);
-			assertThat(mapper.getStatusCode(Status.UP)).isEqualTo(123);
-		});
-	}
-
-	@Test
 	void runCreatesStatusAggregatorFromProperties() {
 		this.contextRunner.withPropertyValues("management.endpoint.health.status.order=up,down").run((context) -> {
 			StatusAggregator aggregator = context.getBean(StatusAggregator.class);
@@ -110,17 +103,9 @@ class HealthEndpointAutoConfigurationTests {
 	}
 
 	@Test
-	void runWhenUsingDeprecatedPropertyCreatesStatusAggregatorFromProperties() {
-		this.contextRunner.withPropertyValues("management.health.status.order=up,down").run((context) -> {
-			StatusAggregator aggregator = context.getBean(StatusAggregator.class);
-			assertThat(aggregator.getAggregateStatus(Status.UP, Status.DOWN)).isEqualTo(Status.UP);
-		});
-	}
-
-	@Test
 	void runWhenHasStatusAggregatorBeanIgnoresProperties() {
 		this.contextRunner.withUserConfiguration(StatusAggregatorConfiguration.class)
-				.withPropertyValues("management.health.status.order=up,down").run((context) -> {
+				.withPropertyValues("management.endpoint.health.status.order=up,down").run((context) -> {
 					StatusAggregator aggregator = context.getBean(StatusAggregator.class);
 					assertThat(aggregator.getAggregateStatus(Status.UP, Status.DOWN)).isEqualTo(Status.UNKNOWN);
 				});
@@ -136,17 +121,9 @@ class HealthEndpointAutoConfigurationTests {
 	}
 
 	@Test
-	void runUsingDeprecatedPropertyCreatesHttpCodeStatusMapperFromProperties() {
-		this.contextRunner.withPropertyValues("management.health.status.http-mapping.up=123").run((context) -> {
-			HttpCodeStatusMapper mapper = context.getBean(HttpCodeStatusMapper.class);
-			assertThat(mapper.getStatusCode(Status.UP)).isEqualTo(123);
-		});
-	}
-
-	@Test
 	void runWhenHasHttpCodeStatusMapperBeanIgnoresProperties() {
 		this.contextRunner.withUserConfiguration(HttpCodeStatusMapperConfiguration.class)
-				.withPropertyValues("management.health.status.http-mapping.up=123").run((context) -> {
+				.withPropertyValues("management.endpoint.health.status.http-mapping.up=123").run((context) -> {
 					HttpCodeStatusMapper mapper = context.getBean(HttpCodeStatusMapper.class);
 					assertThat(mapper.getStatusCode(Status.UP)).isEqualTo(456);
 				});
@@ -173,6 +150,16 @@ class HealthEndpointAutoConfigurationTests {
 	@Test
 	void runCreatesHealthContributorRegistryContainingHealthBeans() {
 		this.contextRunner.run((context) -> {
+			HealthContributorRegistry registry = context.getBean(HealthContributorRegistry.class);
+			Object[] names = registry.stream().map(NamedContributor::getName).toArray();
+			assertThat(names).containsExactlyInAnyOrder("simple", "additional", "ping", "reactive");
+		});
+	}
+
+	@Test
+	void runWhenNoReactorCreatesHealthContributorRegistryContainingHealthBeans() {
+		ClassLoader classLoader = new FilteredClassLoader(Mono.class, Flux.class);
+		this.contextRunner.withClassLoader(classLoader).run((context) -> {
 			HealthContributorRegistry registry = context.getBean(HealthContributorRegistry.class);
 			Object[] names = registry.stream().map(NamedContributor::getName).toArray();
 			assertThat(names).containsExactlyInAnyOrder("simple", "additional", "ping");
@@ -229,7 +216,8 @@ class HealthEndpointAutoConfigurationTests {
 	void runCreatesHealthEndpointWebExtension() {
 		this.contextRunner.run((context) -> {
 			HealthEndpointWebExtension webExtension = context.getBean(HealthEndpointWebExtension.class);
-			WebEndpointResponse<HealthComponent> response = webExtension.health(SecurityContext.NONE, true, "simple");
+			WebEndpointResponse<HealthComponent> response = webExtension.health(ApiVersion.V3,
+					WebServerNamespace.SERVER, SecurityContext.NONE, true, "simple");
 			Health health = (Health) response.getBody();
 			assertThat(response.getStatus()).isEqualTo(200);
 			assertThat(health.getDetails()).containsEntry("counter", 42);
@@ -240,7 +228,8 @@ class HealthEndpointAutoConfigurationTests {
 	void runWhenHasHealthEndpointWebExtensionBeanDoesNotCreateExtraHealthEndpointWebExtension() {
 		this.contextRunner.withUserConfiguration(HealthEndpointWebExtensionConfiguration.class).run((context) -> {
 			HealthEndpointWebExtension webExtension = context.getBean(HealthEndpointWebExtension.class);
-			WebEndpointResponse<HealthComponent> response = webExtension.health(SecurityContext.NONE, true, "simple");
+			WebEndpointResponse<HealthComponent> response = webExtension.health(ApiVersion.V3,
+					WebServerNamespace.SERVER, SecurityContext.NONE, true, "simple");
 			assertThat(response).isNull();
 		});
 	}
@@ -249,8 +238,8 @@ class HealthEndpointAutoConfigurationTests {
 	void runCreatesReactiveHealthEndpointWebExtension() {
 		this.reactiveContextRunner.run((context) -> {
 			ReactiveHealthEndpointWebExtension webExtension = context.getBean(ReactiveHealthEndpointWebExtension.class);
-			Mono<WebEndpointResponse<? extends HealthComponent>> response = webExtension.health(SecurityContext.NONE,
-					true, "simple");
+			Mono<WebEndpointResponse<? extends HealthComponent>> response = webExtension.health(ApiVersion.V3,
+					WebServerNamespace.SERVER, SecurityContext.NONE, true, "simple");
 			Health health = (Health) (response.block().getBody());
 			assertThat(health.getDetails()).containsEntry("counter", 42);
 		});
@@ -262,10 +251,46 @@ class HealthEndpointAutoConfigurationTests {
 				.run((context) -> {
 					ReactiveHealthEndpointWebExtension webExtension = context
 							.getBean(ReactiveHealthEndpointWebExtension.class);
-					Mono<WebEndpointResponse<? extends HealthComponent>> response = webExtension
-							.health(SecurityContext.NONE, true, "simple");
+					Mono<WebEndpointResponse<? extends HealthComponent>> response = webExtension.health(ApiVersion.V3,
+							WebServerNamespace.SERVER, SecurityContext.NONE, true, "simple");
 					assertThat(response).isNull();
 				});
+	}
+
+	@Test
+	void runWhenHasHealthEndpointGroupsPostProcessorPerformsProcessing() {
+		this.contextRunner.withPropertyValues("management.endpoint.health.group.ready.include=*").withUserConfiguration(
+				HealthEndpointGroupsConfiguration.class, TestHealthEndpointGroupsPostProcessor.class).run((context) -> {
+					HealthEndpointGroups groups = context.getBean(HealthEndpointGroups.class);
+					assertThatExceptionOfType(RuntimeException.class).isThrownBy(() -> groups.get("test"))
+							.withMessage("postprocessed");
+				});
+	}
+
+	@Test
+	void runWithIndicatorsInParentContextFindsIndicators() {
+		new ApplicationContextRunner().withUserConfiguration(HealthIndicatorsConfiguration.class)
+				.run((parent) -> new WebApplicationContextRunner().withConfiguration(AutoConfigurations
+						.of(HealthContributorAutoConfiguration.class, HealthEndpointAutoConfiguration.class))
+						.withParent(parent).run((context) -> {
+							HealthComponent health = context.getBean(HealthEndpoint.class).health();
+							Map<String, HealthComponent> components = ((SystemHealth) health).getComponents();
+							assertThat(components).containsKeys("additional", "ping", "simple");
+						}));
+	}
+
+	@Test
+	void runWithReactiveContextAndIndicatorsInParentContextFindsIndicators() {
+		new ApplicationContextRunner().withUserConfiguration(HealthIndicatorsConfiguration.class)
+				.run((parent) -> new ReactiveWebApplicationContextRunner()
+						.withConfiguration(AutoConfigurations.of(HealthContributorAutoConfiguration.class,
+								HealthEndpointAutoConfiguration.class, WebEndpointAutoConfiguration.class,
+								EndpointAutoConfiguration.class))
+						.withParent(parent).run((context) -> {
+							HealthComponent health = context.getBean(HealthEndpoint.class).health();
+							Map<String, HealthComponent> components = ((SystemHealth) health).getComponents();
+							assertThat(components).containsKeys("additional", "ping", "simple");
+						}));
 	}
 
 	@Configuration(proxyBeanMethods = false)
@@ -284,40 +309,6 @@ class HealthEndpointAutoConfigurationTests {
 		@Bean
 		ReactiveHealthIndicator reactiveHealthIndicator() {
 			return () -> Mono.just(Health.up().build());
-		}
-
-	}
-
-	@Configuration(proxyBeanMethods = false)
-	static class HealthAggregatorConfiguration {
-
-		@Bean
-		HealthAggregator healthAggregator() {
-			return new AbstractHealthAggregator() {
-
-				@Override
-				protected Status aggregateStatus(List<Status> candidates) {
-					return Status.UNKNOWN;
-				}
-
-			};
-		}
-
-	}
-
-	@Configuration(proxyBeanMethods = false)
-	static class HealthStatusHttpMapperConfiguration {
-
-		@Bean
-		HealthStatusHttpMapper healthStatusHttpMapper() {
-			return new HealthStatusHttpMapper() {
-
-				@Override
-				public int mapStatus(Status status) {
-					return 123;
-				}
-
-			};
 		}
 
 	}
@@ -400,6 +391,16 @@ class HealthEndpointAutoConfigurationTests {
 		@Bean
 		ReactiveHealthEndpointWebExtension reactiveHealthEndpointWebExtension() {
 			return mock(ReactiveHealthEndpointWebExtension.class);
+		}
+
+	}
+
+	static class TestHealthEndpointGroupsPostProcessor implements HealthEndpointGroupsPostProcessor {
+
+		@Override
+		public HealthEndpointGroups postProcessHealthEndpointGroups(HealthEndpointGroups groups) {
+			given(groups.get("test")).willThrow(new RuntimeException("postprocessed"));
+			return groups;
 		}
 
 	}

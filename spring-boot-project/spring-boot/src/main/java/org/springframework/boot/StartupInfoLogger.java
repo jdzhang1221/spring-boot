@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.springframework.boot;
 
 import java.lang.management.ManagementFactory;
 import java.net.InetAddress;
+import java.time.Duration;
 import java.util.concurrent.Callable;
 
 import org.apache.commons.logging.Log;
@@ -29,7 +30,6 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.core.log.LogMessage;
 import org.springframework.util.Assert;
 import org.springframework.util.ClassUtils;
-import org.springframework.util.StopWatch;
 import org.springframework.util.StringUtils;
 
 /**
@@ -56,9 +56,9 @@ class StartupInfoLogger {
 		applicationLog.debug(LogMessage.of(this::getRunningMessage));
 	}
 
-	void logStarted(Log applicationLog, StopWatch stopWatch) {
+	void logStarted(Log applicationLog, Duration timeTakenToStartup) {
 		if (applicationLog.isInfoEnabled()) {
-			applicationLog.info(getStartedMessage(stopWatch));
+			applicationLog.info(getStartedMessage(timeTakenToStartup));
 		}
 	}
 
@@ -67,6 +67,7 @@ class StartupInfoLogger {
 		message.append("Starting ");
 		appendApplicationName(message);
 		appendVersion(message, this.sourceClass);
+		appendJavaVersion(message);
 		appendOn(message);
 		appendPid(message);
 		appendContext(message);
@@ -82,16 +83,16 @@ class StartupInfoLogger {
 		return message;
 	}
 
-	private CharSequence getStartedMessage(StopWatch stopWatch) {
+	private CharSequence getStartedMessage(Duration timeTakenToStartup) {
 		StringBuilder message = new StringBuilder();
 		message.append("Started ");
 		appendApplicationName(message);
 		message.append(" in ");
-		message.append(stopWatch.getTotalTimeSeconds());
+		message.append(timeTakenToStartup.toMillis() / 1000.0);
 		message.append(" seconds");
 		try {
 			double uptime = ManagementFactory.getRuntimeMXBean().getUptime() / 1000.0;
-			message.append(" (JVM running for ").append(uptime).append(")");
+			message.append(" (process running for ").append(uptime).append(")");
 		}
 		catch (Throwable ex) {
 			// No JVM time available
@@ -112,16 +113,19 @@ class StartupInfoLogger {
 		long startTime = System.currentTimeMillis();
 		append(message, "on ", () -> InetAddress.getLocalHost().getHostName());
 		long resolveTime = System.currentTimeMillis() - startTime;
-		if (resolveTime > HOST_NAME_RESOLVE_THRESHOLD && logger.isWarnEnabled()) {
-			StringBuilder warning = new StringBuilder();
-			warning.append("InetAddress.getLocalHost().getHostName() took ");
-			warning.append(resolveTime);
-			warning.append(" milliseconds to respond.");
-			warning.append(" Please verify your network configuration");
-			if (System.getProperty("os.name").toLowerCase().contains("mac")) {
-				warning.append(" (macOS machines may need to add entries to /etc/hosts)");
-			}
-			logger.warn(warning.append("."));
+		if (resolveTime > HOST_NAME_RESOLVE_THRESHOLD) {
+			logger.warn(LogMessage.of(() -> {
+				StringBuilder warning = new StringBuilder();
+				warning.append("InetAddress.getLocalHost().getHostName() took ");
+				warning.append(resolveTime);
+				warning.append(" milliseconds to respond.");
+				warning.append(" Please verify your network configuration");
+				if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+					warning.append(" (macOS machines may need to add entries to /etc/hosts)");
+				}
+				warning.append(".");
+				return warning;
+			}));
 		}
 	}
 
@@ -142,6 +146,10 @@ class StartupInfoLogger {
 			message.append(context);
 			message.append(")");
 		}
+	}
+
+	private void appendJavaVersion(StringBuilder message) {
+		append(message, "using Java ", () -> System.getProperty("java.version"));
 	}
 
 	private void append(StringBuilder message, String prefix, Callable<Object> call) {

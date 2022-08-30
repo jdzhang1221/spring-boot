@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,6 +30,7 @@ import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
+import org.springframework.core.Ordered;
 import org.springframework.util.StringUtils;
 
 /**
@@ -45,7 +46,7 @@ import org.springframework.util.StringUtils;
  * @since 1.3.0
  * @see BeanDefinition#setDependsOn(String[])
  */
-public abstract class AbstractDependsOnBeanFactoryPostProcessor implements BeanFactoryPostProcessor {
+public abstract class AbstractDependsOnBeanFactoryPostProcessor implements BeanFactoryPostProcessor, Ordered {
 
 	private final Class<?> beanClass;
 
@@ -114,6 +115,11 @@ public abstract class AbstractDependsOnBeanFactoryPostProcessor implements BeanF
 		}
 	}
 
+	@Override
+	public int getOrder() {
+		return 0;
+	}
+
 	private Set<String> getBeanNames(ListableBeanFactory beanFactory) {
 		Set<String> names = getBeanNames(beanFactory, this.beanClass);
 		if (this.factoryBeanClass != null) {
@@ -133,8 +139,8 @@ public abstract class AbstractDependsOnBeanFactoryPostProcessor implements BeanF
 		}
 		catch (NoSuchBeanDefinitionException ex) {
 			BeanFactory parentBeanFactory = beanFactory.getParentBeanFactory();
-			if (parentBeanFactory instanceof ConfigurableListableBeanFactory) {
-				return getBeanDefinition(beanName, (ConfigurableListableBeanFactory) parentBeanFactory);
+			if (parentBeanFactory instanceof ConfigurableListableBeanFactory listableBeanFactory) {
+				return getBeanDefinition(beanName, listableBeanFactory);
 			}
 			throw ex;
 		}

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,9 @@
 
 package smoketest.quartz;
 
+import java.time.Duration;
+
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -24,7 +27,7 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ConfigurableApplicationContext;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 
 /**
  * Tests for {@link SampleQuartzApplication}.
@@ -35,13 +38,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SampleQuartzApplicationTests {
 
 	@Test
-	void quartzJobIsTriggered(CapturedOutput output) throws InterruptedException {
-		try (ConfigurableApplicationContext context = SpringApplication.run(SampleQuartzApplication.class)) {
-			long end = System.currentTimeMillis() + 5000;
-			while ((!output.toString().contains("Hello World!")) && System.currentTimeMillis() < end) {
-				Thread.sleep(100);
-			}
-			assertThat(output).contains("Hello World!");
+	void quartzJobIsTriggered(CapturedOutput output) {
+		try (ConfigurableApplicationContext context = SpringApplication.run(SampleQuartzApplication.class,
+				"--server.port=0")) {
+			Awaitility.waitAtMost(Duration.ofSeconds(5)).until(output::toString, containsString("Hello World!"));
 		}
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import org.springframework.boot.actuate.endpoint.SecurityContext;
  * by the {@link HealthEndpoint}.
  *
  * @author Phillip Webb
+ * @author Madhura Bhave
  * @since 2.2.0
  */
 public interface HealthEndpointGroup {
@@ -35,15 +36,23 @@ public interface HealthEndpointGroup {
 	boolean isMember(String name);
 
 	/**
-	 * Returns if {@link Health#getDetails() health details} should be included in the
-	 * response.
+	 * Returns if {@link CompositeHealth#getComponents() health components} should be
+	 * shown in the response.
 	 * @param securityContext the endpoint security context
-	 * @return {@code true} to included details or {@code false} to hide them
+	 * @return {@code true} to shown details or {@code false} to hide them
 	 */
-	boolean includeDetails(SecurityContext securityContext);
+	boolean showComponents(SecurityContext securityContext);
 
 	/**
-	 * Returns the status agreggator that should be used for this group.
+	 * Returns if {@link Health#getDetails() health details} should be shown in the
+	 * response.
+	 * @param securityContext the endpoint security context
+	 * @return {@code true} to shown details or {@code false} to hide them
+	 */
+	boolean showDetails(SecurityContext securityContext);
+
+	/**
+	 * Returns the status aggregator that should be used for this group.
 	 * @return the status aggregator for this group
 	 */
 	StatusAggregator getStatusAggregator();
@@ -53,5 +62,13 @@ public interface HealthEndpointGroup {
 	 * @return the HTTP code status mapper
 	 */
 	HttpCodeStatusMapper getHttpCodeStatusMapper();
+
+	/**
+	 * Return an additional path that can be used to map the health group to an
+	 * alternative location.
+	 * @return the additional health path or {@code null}
+	 * @since 2.6.0
+	 */
+	AdditionalHealthEndpointPath getAdditionalPath();
 
 }

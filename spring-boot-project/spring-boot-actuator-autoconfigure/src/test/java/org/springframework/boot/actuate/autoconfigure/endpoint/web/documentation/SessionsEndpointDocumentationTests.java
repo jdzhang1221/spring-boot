@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ import org.springframework.session.Session;
 import org.springframework.test.context.TestPropertySource;
 
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.verify;
+import static org.mockito.BDDMockito.then;
 import static org.springframework.restdocs.mockmvc.MockMvcRestDocumentation.document;
 import static org.springframework.restdocs.payload.PayloadDocumentation.fieldWithPath;
 import static org.springframework.restdocs.payload.PayloadDocumentation.responseFields;
@@ -93,10 +93,6 @@ class SessionsEndpointDocumentationTests extends MockMvcEndpointDocumentationTes
 
 	@Test
 	void sessionWithId() throws Exception {
-		Map<String, Session> sessions = new HashMap<>();
-		sessions.put(sessionOne.getId(), sessionOne);
-		sessions.put(sessionTwo.getId(), sessionTwo);
-		sessions.put(sessionThree.getId(), sessionThree);
 		given(this.sessionRepository.findById(sessionTwo.getId())).willReturn(sessionTwo);
 		this.mockMvc.perform(get("/actuator/sessions/{id}", sessionTwo.getId())).andExpect(status().isOk())
 				.andDo(document("sessions/id", responseFields(sessionFields)));
@@ -106,7 +102,7 @@ class SessionsEndpointDocumentationTests extends MockMvcEndpointDocumentationTes
 	void deleteASession() throws Exception {
 		this.mockMvc.perform(delete("/actuator/sessions/{id}", sessionTwo.getId())).andExpect(status().isNoContent())
 				.andDo(document("sessions/delete"));
-		verify(this.sessionRepository).deleteById(sessionTwo.getId());
+		then(this.sessionRepository).should().deleteById(sessionTwo.getId());
 	}
 
 	private static MapSession createSession(Instant creationTime, Instant lastAccessedTime) {

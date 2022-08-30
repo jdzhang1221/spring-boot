@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package org.springframework.boot.actuate.autoconfigure.cloudfoundry.servlet;
 
 import org.springframework.boot.actuate.autoconfigure.cloudfoundry.EndpointCloudFoundryExtension;
+import org.springframework.boot.actuate.endpoint.ApiVersion;
 import org.springframework.boot.actuate.endpoint.SecurityContext;
 import org.springframework.boot.actuate.endpoint.annotation.EndpointExtension;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
@@ -44,13 +45,14 @@ public class CloudFoundryHealthEndpointWebExtension {
 	}
 
 	@ReadOperation
-	public WebEndpointResponse<HealthComponent> health() {
-		return this.delegate.health(SecurityContext.NONE, true);
+	public WebEndpointResponse<HealthComponent> health(ApiVersion apiVersion) {
+		return this.delegate.health(apiVersion, null, SecurityContext.NONE, true);
 	}
 
 	@ReadOperation
-	public WebEndpointResponse<HealthComponent> health(@Selector(match = Match.ALL_REMAINING) String... path) {
-		return this.delegate.health(SecurityContext.NONE, true, path);
+	public WebEndpointResponse<HealthComponent> health(ApiVersion apiVersion,
+			@Selector(match = Match.ALL_REMAINING) String... path) {
+		return this.delegate.health(apiVersion, null, SecurityContext.NONE, true, path);
 	}
 
 }

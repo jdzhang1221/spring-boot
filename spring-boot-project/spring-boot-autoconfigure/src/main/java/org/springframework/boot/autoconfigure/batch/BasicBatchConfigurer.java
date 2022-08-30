@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,17 @@
 
 package org.springframework.boot.autoconfigure.batch;
 
-import javax.annotation.PostConstruct;
 import javax.sql.DataSource;
 
 import org.springframework.batch.core.configuration.annotation.BatchConfigurer;
 import org.springframework.batch.core.explore.JobExplorer;
 import org.springframework.batch.core.explore.support.JobExplorerFactoryBean;
 import org.springframework.batch.core.launch.JobLauncher;
-import org.springframework.batch.core.launch.support.SimpleJobLauncher;
+import org.springframework.batch.core.launch.support.TaskExecutorJobLauncher;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.repository.support.JobRepositoryFactoryBean;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.boot.autoconfigure.batch.BatchProperties.Isolation;
 import org.springframework.boot.autoconfigure.transaction.TransactionManagerCustomizers;
 import org.springframework.boot.context.properties.PropertyMapper;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -40,7 +41,7 @@ import org.springframework.transaction.PlatformTransactionManager;
  * @author Stephane Nicoll
  * @since 1.0.0
  */
-public class BasicBatchConfigurer implements BatchConfigurer {
+public class BasicBatchConfigurer implements BatchConfigurer, InitializingBean {
 
 	private final BatchProperties properties;
 
@@ -90,7 +91,11 @@ public class BasicBatchConfigurer implements BatchConfigurer {
 		return this.jobExplorer;
 	}
 
-	@PostConstruct
+	@Override
+	public void afterPropertiesSet() {
+		initialize();
+	}
+
 	public void initialize() {
 		try {
 			this.transactionManager = buildTransactionManager();
@@ -107,13 +112,13 @@ public class BasicBatchConfigurer implements BatchConfigurer {
 		PropertyMapper map = PropertyMapper.get();
 		JobExplorerFactoryBean factory = new JobExplorerFactoryBean();
 		factory.setDataSource(this.dataSource);
-		map.from(this.properties::getTablePrefix).whenHasText().to(factory::setTablePrefix);
+		map.from(this.properties.getJdbc()::getTablePrefix).whenHasText().to(factory::setTablePrefix);
 		factory.afterPropertiesSet();
 		return factory.getObject();
 	}
 
 	protected JobLauncher createJobLauncher() throws Exception {
-		SimpleJobLauncher jobLauncher = new SimpleJobLauncher();
+		TaskExecutorJobLauncher jobLauncher = new TaskExecutorJobLauncher();
 		jobLauncher.setJobRepository(getJobRepository());
 		jobLauncher.afterPropertiesSet();
 		return jobLauncher;
@@ -124,7 +129,7 @@ public class BasicBatchConfigurer implements BatchConfigurer {
 		PropertyMapper map = PropertyMapper.get();
 		map.from(this.dataSource).to(factory::setDataSource);
 		map.from(this::determineIsolationLevel).whenNonNull().to(factory::setIsolationLevelForCreate);
-		map.from(this.properties::getTablePrefix).whenHasText().to(factory::setTablePrefix);
+		map.from(this.properties.getJdbc()::getTablePrefix).whenHasText().to(factory::setTablePrefix);
 		map.from(this::getTransactionManager).to(factory::setTransactionManager);
 		factory.afterPropertiesSet();
 		return factory.getObject();
@@ -135,7 +140,8 @@ public class BasicBatchConfigurer implements BatchConfigurer {
 	 * @return the isolation level or {@code null} to use the default
 	 */
 	protected String determineIsolationLevel() {
-		return null;
+		Isolation isolation = this.properties.getJdbc().getIsolationLevelForCreate();
+		return (isolation != null) ? isolation.toIsolationName() : null;
 	}
 
 	protected PlatformTransactionManager createTransactionManager() {

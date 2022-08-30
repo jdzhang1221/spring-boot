@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -209,7 +209,8 @@ class EndpointDiscovererTests {
 		load(SpecializedEndpointsConfiguration.class, (context) -> {
 			SpecializedEndpointDiscoverer discoverer = new SpecializedEndpointDiscoverer(context);
 			Map<EndpointId, SpecializedExposableEndpoint> endpoints = mapEndpoints(discoverer.getEndpoints());
-			assertThat(endpoints).containsOnlyKeys(EndpointId.of("test"), EndpointId.of("specialized"));
+			assertThat(endpoints).containsOnlyKeys(EndpointId.of("test"), EndpointId.of("specialized"),
+					EndpointId.of("specialized-superclass"));
 		});
 	}
 
@@ -252,7 +253,7 @@ class EndpointDiscovererTests {
 		load(SpecializedEndpointsConfiguration.class, (context) -> {
 			EndpointFilter<SpecializedExposableEndpoint> filter = (endpoint) -> {
 				EndpointId id = endpoint.getEndpointId();
-				return !id.equals(EndpointId.of("specialized"));
+				return !id.equals(EndpointId.of("specialized")) && !id.equals(EndpointId.of("specialized-superclass"));
 			};
 			SpecializedEndpointDiscoverer discoverer = new SpecializedEndpointDiscoverer(context,
 					Collections.singleton(filter));
@@ -266,8 +267,7 @@ class EndpointDiscovererTests {
 		Map<EndpointId, TestExposableEndpoint> endpoints = mapEndpoints(discoverer.getEndpoints());
 		assertThat(endpoints).containsOnlyKeys(EndpointId.of("test"));
 		Map<Method, TestOperation> operations = mapOperations(endpoints.get(EndpointId.of("test")));
-		assertThat(operations).hasSize(4);
-		assertThat(operations).containsKeys();
+		assertThat(operations).containsOnlyKeys(testEndpointMethods());
 	}
 
 	private Method[] testEndpointMethods() {
@@ -401,7 +401,8 @@ class EndpointDiscovererTests {
 
 	}
 
-	@Import({ TestEndpoint.class, SpecializedTestEndpoint.class, SpecializedExtension.class })
+	@Import({ TestEndpoint.class, SpecializedTestEndpoint.class, SpecializedSuperclassTestEndpoint.class,
+			SpecializedExtension.class })
 	static class SpecializedEndpointsConfiguration {
 
 	}
@@ -486,6 +487,20 @@ class EndpointDiscovererTests {
 
 	@SpecializedEndpoint(id = "specialized")
 	static class SpecializedTestEndpoint {
+
+		@ReadOperation
+		Object getAll() {
+			return null;
+		}
+
+	}
+
+	@SpecializedEndpoint(id = "specialized-superclass")
+	static class AbstractFilteredEndpoint {
+
+	}
+
+	static class SpecializedSuperclassTestEndpoint extends AbstractFilteredEndpoint {
 
 		@ReadOperation
 		Object getAll() {

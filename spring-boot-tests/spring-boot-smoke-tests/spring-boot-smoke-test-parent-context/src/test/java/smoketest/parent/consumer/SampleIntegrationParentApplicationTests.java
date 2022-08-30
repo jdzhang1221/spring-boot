@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Path;
+import java.time.Duration;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import smoketest.parent.SampleParentContextApplication;
@@ -33,7 +35,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.ResourcePatternUtils;
 import org.springframework.util.StreamUtils;
 
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.hamcrest.Matchers.containsString;
 
 /**
  * Basic integration tests for service demo application.
@@ -44,47 +46,29 @@ import static org.junit.jupiter.api.Assertions.fail;
 class SampleIntegrationParentApplicationTests {
 
 	@Test
-	void testVanillaExchange(@TempDir Path temp) throws Exception {
+	void testVanillaExchange(@TempDir Path temp) {
 		File inputDir = new File(temp.toFile(), "input");
 		File outputDir = new File(temp.toFile(), "output");
-		ConfigurableApplicationContext app = SpringApplication.run(SampleParentContextApplication.class,
-				"--service.input-dir=" + inputDir, "--service.output-dir=" + outputDir);
-		try {
-			ConfigurableApplicationContext producer = SpringApplication.run(ProducerApplication.class,
-					"--service.input-dir=" + inputDir, "--service.output-dir=" + outputDir, "World");
-			try {
+		try (ConfigurableApplicationContext app = SpringApplication.run(SampleParentContextApplication.class,
+				"--service.input-dir=" + inputDir, "--service.output-dir=" + outputDir)) {
+			try (ConfigurableApplicationContext producer = SpringApplication.run(ProducerApplication.class,
+					"--service.input-dir=" + inputDir, "--service.output-dir=" + outputDir, "World")) {
 				awaitOutputContaining(outputDir, "Hello World");
 			}
-			finally {
-				producer.close();
-			}
-		}
-		finally {
-			app.close();
 		}
 	}
 
-	private void awaitOutputContaining(File outputDir, String requiredContents) throws Exception {
-		long endTime = System.currentTimeMillis() + 30000;
-		String output = null;
-		while (System.currentTimeMillis() < endTime) {
-			Resource[] resources = findResources(outputDir);
-			if (resources.length == 0) {
-				Thread.sleep(200);
-				resources = findResources(outputDir);
-			}
-			else {
-				output = readResources(resources);
-				if (output != null && output.contains(requiredContents)) {
-					return;
-				}
-				else {
-					Thread.sleep(200);
-					output = readResources(resources);
-				}
-			}
+	private void awaitOutputContaining(File outputDir, String requiredContents) {
+		Awaitility.waitAtMost(Duration.ofSeconds(30)).until(() -> outputIn(outputDir),
+				containsString(requiredContents));
+	}
+
+	private String outputIn(File outputDir) throws IOException {
+		Resource[] resources = findResources(outputDir);
+		if (resources.length == 0) {
+			return null;
 		}
-		fail("Timed out awaiting output containing '" + requiredContents + "'. Output was '" + output + "'");
+		return readResources(resources);
 	}
 
 	private Resource[] findResources(File outputDir) throws IOException {

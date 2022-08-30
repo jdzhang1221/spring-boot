@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,8 +29,8 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.boot.web.reactive.context.ReactiveWebApplicationContext;
-import org.springframework.boot.web.server.LocalServerPort;
 import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Configuration;
@@ -101,11 +101,12 @@ public @interface SpringBootTest {
 	 * @return the application arguments to pass to the application under test.
 	 * @see ApplicationArguments
 	 * @see SpringApplication#run(String...)
+	 * @since 2.2.0
 	 */
 	String[] args() default {};
 
 	/**
-	 * The <em>annotated classes</em> to use for loading an
+	 * The <em>component classes</em> to use for loading an
 	 * {@link org.springframework.context.ApplicationContext ApplicationContext}. Can also
 	 * be specified using
 	 * {@link ContextConfiguration#classes() @ContextConfiguration(classes=...)}. If no
@@ -113,7 +114,7 @@ public @interface SpringBootTest {
 	 * {@link Configuration @Configuration} classes, before falling back to a
 	 * {@link SpringBootConfiguration @SpringBootConfiguration} search.
 	 * @see ContextConfiguration#classes()
-	 * @return the annotated classes used to load the application context
+	 * @return the component classes used to load the application context
 	 */
 	Class<?>[] classes() default {};
 

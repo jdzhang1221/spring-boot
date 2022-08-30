@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.springframework.boot.actuate.endpoint.SecurityContext;
@@ -54,17 +55,18 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.util.StringUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
+import static org.mockito.BDDMockito.then;
 
 /**
  * Abstract base class for web endpoint integration tests.
  *
  * @param <T> the type of application context used by the tests
  * @author Andy Wilkinson
+ * @author Scott Frederick
  */
 public abstract class AbstractWebEndpointIntegrationTests<T extends ConfigurableApplicationContext & AnnotationConfigRegistry> {
 
-	private static final Duration TIMEOUT = Duration.ofMinutes(6);
+	private static final Duration TIMEOUT = Duration.ofMinutes(5);
 
 	private static final String ACTUATOR_MEDIA_TYPE_PATTERN = "application/vnd.test\\+json(;charset=UTF-8)?";
 
@@ -121,9 +123,9 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 	}
 
 	@Test
-	void operationWithTrailingSlashShouldMatch() {
-		load(TestEndpointConfiguration.class, (client) -> client.get().uri("/test/").exchange().expectStatus().isOk()
-				.expectBody().jsonPath("All").isEqualTo(true));
+	protected void operationWithTrailingSlashShouldNotMatch() {
+		load(TestEndpointConfiguration.class,
+				(client) -> client.get().uri("/test/").exchange().expectStatus().isNotFound());
 	}
 
 	@Test
@@ -136,7 +138,7 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 	@Test
 	void matchAllRemainingPathsSelectorShouldDecodePath() {
 		load(MatchAllRemainingEndpointConfiguration.class,
-				(client) -> client.get().uri("/matchallremaining/one/two%20three/").exchange().expectStatus().isOk()
+				(client) -> client.get().uri("/matchallremaining/one/two three/").exchange().expectStatus().isOk()
 						.expectBody().jsonPath("selection").isEqualTo("one|two three"));
 	}
 
@@ -187,7 +189,7 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 	void writeOperationWithVoidResponse() {
 		load(VoidWriteResponseEndpointConfiguration.class, (context, client) -> {
 			client.post().uri("/voidwrite").exchange().expectStatus().isNoContent().expectBody().isEmpty();
-			verify(context.getBean(EndpointDelegate.class)).write();
+			then(context.getBean(EndpointDelegate.class)).should().write();
 		});
 	}
 
@@ -201,7 +203,7 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 	void deleteOperationWithVoidResponse() {
 		load(VoidDeleteResponseEndpointConfiguration.class, (context, client) -> {
 			client.delete().uri("/voiddelete").exchange().expectStatus().isNoContent().expectBody().isEmpty();
-			verify(context.getBean(EndpointDelegate.class)).delete();
+			then(context.getBean(EndpointDelegate.class)).should().delete();
 		});
 	}
 
@@ -211,7 +213,7 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 			Map<String, Object> body = new HashMap<>();
 			body.put("foo", "one");
 			client.post().uri("/test").bodyValue(body).exchange().expectStatus().isNoContent().expectBody().isEmpty();
-			verify(context.getBean(EndpointDelegate.class)).write("one", null);
+			then(context.getBean(EndpointDelegate.class)).should().write("one", null);
 		});
 	}
 
@@ -220,7 +222,7 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 		load(TestEndpointConfiguration.class, (context, client) -> {
 			client.post().uri("/test").contentType(MediaType.APPLICATION_JSON).exchange().expectStatus().isNoContent()
 					.expectBody().isEmpty();
-			verify(context.getBean(EndpointDelegate.class)).write(null, null);
+			then(context.getBean(EndpointDelegate.class)).should().write(null, null);
 		});
 	}
 
@@ -266,6 +268,14 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 	void readOperationWithMonoResponse() {
 		load(MonoResponseEndpointConfiguration.class, (client) -> client.get().uri("/mono").exchange().expectStatus()
 				.isOk().expectBody().jsonPath("a").isEqualTo("alpha"));
+	}
+
+	@Test
+	void readOperationWithFluxResponse() {
+		load(FluxResponseEndpointConfiguration.class,
+				(client) -> client.get().uri("/flux").exchange().expectStatus().isOk().expectBody().jsonPath("[0].a")
+						.isEqualTo("alpha").jsonPath("[1].b").isEqualTo("bravo").jsonPath("[2].c")
+						.isEqualTo("charlie"));
 	}
 
 	@Test
@@ -379,6 +389,12 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 				.expectStatus().isOk().expectBody(String.class).isEqualTo("ACTUATOR: true"));
 	}
 
+	@Test
+	void endpointCanProduceAResponseWithACustomStatus() {
+		load((context) -> context.register(CustomResponseStatusEndpointConfiguration.class),
+				(client) -> client.get().uri("/customstatus").exchange().expectStatus().isEqualTo(234));
+	}
+
 	protected abstract int getPort(T context);
 
 	protected void validateErrorBody(WebTestClient.BodyContentSpec body, HttpStatus status, String path,
@@ -409,8 +425,10 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 			BiConsumer<ApplicationContext, WebTestClient> consumer) {
 		T applicationContext = this.applicationContextSupplier.get();
 		contextCustomizer.accept(applicationContext);
-		applicationContext.getEnvironment().getPropertySources()
-				.addLast(new MapPropertySource("test", Collections.singletonMap("endpointPath", endpointPath)));
+		Map<String, Object> properties = new HashMap<>();
+		properties.put("endpointPath", endpointPath);
+		properties.put("server.error.include-message", "always");
+		applicationContext.getEnvironment().getPropertySources().addLast(new MapPropertySource("test", properties));
 		applicationContext.refresh();
 		try {
 			InetSocketAddress address = new InetSocketAddress(getPort(applicationContext));
@@ -557,6 +575,17 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 
 	@Configuration(proxyBeanMethods = false)
 	@Import(BaseConfiguration.class)
+	static class FluxResponseEndpointConfiguration {
+
+		@Bean
+		FluxResponseEndpoint testEndpoint(EndpointDelegate endpointDelegate) {
+			return new FluxResponseEndpoint();
+		}
+
+	}
+
+	@Configuration(proxyBeanMethods = false)
+	@Import(BaseConfiguration.class)
 	static class CustomMediaTypesEndpointConfiguration {
 
 		@Bean
@@ -617,6 +646,17 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 		@Bean
 		UserInRoleEndpoint userInRoleEndpoint() {
 			return new UserInRoleEndpoint();
+		}
+
+	}
+
+	@Configuration(proxyBeanMethods = false)
+	@Import(BaseConfiguration.class)
+	static class CustomResponseStatusEndpointConfiguration {
+
+		@Bean
+		CustomResponseStatusEndpoint customResponseStatusEndpoint() {
+			return new CustomResponseStatusEndpoint();
 		}
 
 	}
@@ -786,6 +826,17 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 
 	}
 
+	@Endpoint(id = "flux")
+	static class FluxResponseEndpoint {
+
+		@ReadOperation
+		Flux<Map<String, String>> operation() {
+			return Flux.just(Collections.singletonMap("a", "alpha"), Collections.singletonMap("b", "bravo"),
+					Collections.singletonMap("c", "charlie"));
+		}
+
+	}
+
 	@Endpoint(id = "custommediatypes")
 	static class CustomMediaTypesEndpoint {
 
@@ -843,6 +894,16 @@ public abstract class AbstractWebEndpointIntegrationTests<T extends Configurable
 		@ReadOperation
 		String read(SecurityContext securityContext, String role) {
 			return role + ": " + securityContext.isUserInRole(role);
+		}
+
+	}
+
+	@Endpoint(id = "customstatus")
+	static class CustomResponseStatusEndpoint {
+
+		@ReadOperation
+		WebEndpointResponse<String> read() {
+			return new WebEndpointResponse<>("Custom status", 234);
 		}
 
 	}

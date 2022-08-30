@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,12 +16,11 @@
 
 package org.springframework.boot.actuate.autoconfigure.metrics.test;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CyclicBarrier;
-
-import javax.servlet.DispatcherType;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.MockClock;
@@ -30,6 +29,7 @@ import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
 import io.micrometer.core.instrument.binder.logging.LogbackMetrics;
 import io.micrometer.core.instrument.simple.SimpleConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import jakarta.servlet.DispatcherType;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -71,6 +71,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.waitAtMost;
 import static org.springframework.test.web.client.ExpectedCount.once;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -110,7 +111,9 @@ class MetricsIntegrationTests {
 	@Test
 	void requestMappingIsInstrumented() {
 		this.loopback.getForObject("/api/people", Set.class);
-		assertThat(this.registry.get("http.server.requests").timer().count()).isEqualTo(1);
+		waitAtMost(Duration.ofSeconds(5)).untilAsserted(
+				() -> assertThat(this.registry.get("http.server.requests").timer().count()).isEqualTo(1));
+
 	}
 
 	@Test

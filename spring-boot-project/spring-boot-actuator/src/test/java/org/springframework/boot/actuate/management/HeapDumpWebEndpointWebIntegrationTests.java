@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,8 +18,10 @@ package org.springframework.boot.actuate.management;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 
 import org.springframework.boot.actuate.endpoint.web.test.WebEndpointTest;
@@ -31,7 +33,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.util.FileCopyUtils;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.is;
 
 /**
  * Integration tests for {@link HeapDumpWebEndpoint} exposed by Jersey, Spring MVC, and
@@ -57,18 +59,14 @@ class HeapDumpWebEndpointWebIntegrationTests {
 	}
 
 	@WebEndpointTest
-	void getRequestShouldReturnHeapDumpInResponseBody(WebTestClient client) throws Exception {
+	void getRequestShouldReturnHeapDumpInResponseBody(WebTestClient client) {
 		client.get().uri("/actuator/heapdump").exchange().expectStatus().isOk().expectHeader()
 				.contentType(MediaType.APPLICATION_OCTET_STREAM).expectBody(String.class).isEqualTo("HEAPDUMP");
 		assertHeapDumpFileIsDeleted();
 	}
 
-	private void assertHeapDumpFileIsDeleted() throws InterruptedException {
-		long end = System.currentTimeMillis() + 5000;
-		while (System.currentTimeMillis() < end && this.endpoint.file.exists()) {
-			Thread.sleep(100);
-		}
-		assertThat(this.endpoint.file.exists()).isFalse();
+	private void assertHeapDumpFileIsDeleted() {
+		Awaitility.waitAtMost(Duration.ofSeconds(5)).until(this.endpoint.file::exists, is(false));
 	}
 
 	@Configuration(proxyBeanMethods = false)

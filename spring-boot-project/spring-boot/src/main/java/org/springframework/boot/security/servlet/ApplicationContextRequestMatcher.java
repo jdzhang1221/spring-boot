@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,9 @@
 
 package org.springframework.boot.security.servlet;
 
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.context.ApplicationContext;
@@ -44,7 +43,9 @@ public abstract class ApplicationContextRequestMatcher<C> implements RequestMatc
 
 	private final Class<? extends C> contextClass;
 
-	private final AtomicBoolean initialized = new AtomicBoolean(false);
+	private volatile boolean initialized;
+
+	private final Object initializeLock = new Object();
 
 	public ApplicationContextRequestMatcher(Class<? extends C> contextClass) {
 		Assert.notNull(contextClass, "Context class must not be null");
@@ -59,8 +60,13 @@ public abstract class ApplicationContextRequestMatcher<C> implements RequestMatc
 			return false;
 		}
 		Supplier<C> context = () -> getContext(webApplicationContext);
-		if (this.initialized.compareAndSet(false, true)) {
-			initialized(context);
+		if (!this.initialized) {
+			synchronized (this.initializeLock) {
+				if (!this.initialized) {
+					initialized(context);
+					this.initialized = true;
+				}
+			}
 		}
 		return matches(request, context);
 	}
@@ -89,7 +95,7 @@ public abstract class ApplicationContextRequestMatcher<C> implements RequestMatc
 	 * Method that can be implemented by subclasses that wish to initialize items the
 	 * first time that the matcher is called. This method will be called only once and
 	 * only if {@link #ignoreApplicationContext(WebApplicationContext)} returns
-	 * {@code true}. Note that the supplied context will be based on the
+	 * {@code false}. Note that the supplied context will be based on the
 	 * <strong>first</strong> request sent to the matcher.
 	 * @param context a supplier for the initialized context (may throw an exception)
 	 * @see #ignoreApplicationContext(WebApplicationContext)

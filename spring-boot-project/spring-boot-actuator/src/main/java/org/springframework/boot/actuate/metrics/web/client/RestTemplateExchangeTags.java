@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,15 +18,12 @@ package org.springframework.boot.actuate.metrics.web.client;
 
 import java.io.IOException;
 import java.net.URI;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.regex.Pattern;
 
 import io.micrometer.core.instrument.Tag;
 
+import org.springframework.boot.actuate.metrics.http.Outcome;
 import org.springframework.http.HttpRequest;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
@@ -44,30 +41,6 @@ import org.springframework.web.client.RestTemplate;
 public final class RestTemplateExchangeTags {
 
 	private static final Pattern STRIP_URI_PATTERN = Pattern.compile("^https?://[^/]+/");
-
-	private static final Tag OUTCOME_UNKNOWN = Tag.of("outcome", "UNKNOWN");
-
-	private static final Tag OUTCOME_INFORMATIONAL = Tag.of("outcome", "INFORMATIONAL");
-
-	private static final Tag OUTCOME_SUCCESS = Tag.of("outcome", "SUCCESS");
-
-	private static final Tag OUTCOME_REDIRECTION = Tag.of("outcome", "REDIRECTION");
-
-	private static final Tag OUTCOME_CLIENT_ERROR = Tag.of("outcome", "CLIENT_ERROR");
-
-	private static final Tag OUTCOME_SERVER_ERROR = Tag.of("outcome", "SERVER_ERROR");
-
-	private static final Map<HttpStatus.Series, Tag> SERIES_OUTCOMES;
-
-	static {
-		Map<HttpStatus.Series, Tag> seriesOutcomes = new HashMap<>();
-		seriesOutcomes.put(HttpStatus.Series.INFORMATIONAL, OUTCOME_INFORMATIONAL);
-		seriesOutcomes.put(HttpStatus.Series.SUCCESSFUL, OUTCOME_SUCCESS);
-		seriesOutcomes.put(HttpStatus.Series.REDIRECTION, OUTCOME_REDIRECTION);
-		seriesOutcomes.put(HttpStatus.Series.CLIENT_ERROR, OUTCOME_CLIENT_ERROR);
-		seriesOutcomes.put(HttpStatus.Series.SERVER_ERROR, OUTCOME_SERVER_ERROR);
-		SERIES_OUTCOMES = Collections.unmodifiableMap(seriesOutcomes);
-	}
 
 	private RestTemplateExchangeTags() {
 	}
@@ -111,7 +84,7 @@ public final class RestTemplateExchangeTags {
 
 	/**
 	 * Creates a {@code status} {@code Tag} derived from the
-	 * {@link ClientHttpResponse#getRawStatusCode() status} of the given {@code response}.
+	 * {@link ClientHttpResponse#getStatusCode() status} of the given {@code response}.
 	 * @param response the response
 	 * @return the status tag
 	 */
@@ -124,7 +97,7 @@ public final class RestTemplateExchangeTags {
 			if (response == null) {
 				return "CLIENT_ERROR";
 			}
-			return String.valueOf(response.getRawStatusCode());
+			return String.valueOf(response.getStatusCode().value());
 		}
 		catch (IOException ex) {
 			return "IO_ERROR";
@@ -132,22 +105,22 @@ public final class RestTemplateExchangeTags {
 	}
 
 	/**
-	 * Create a {@code clientName} {@code Tag} derived from the {@link URI#getHost host}
+	 * Create a {@code client.name} {@code Tag} derived from the {@link URI#getHost host}
 	 * of the {@link HttpRequest#getURI() URI} of the given {@code request}.
 	 * @param request the request
-	 * @return the clientName tag
+	 * @return the client.name tag
 	 */
 	public static Tag clientName(HttpRequest request) {
 		String host = request.getURI().getHost();
 		if (host == null) {
 			host = "none";
 		}
-		return Tag.of("clientName", host);
+		return Tag.of("client.name", host);
 	}
 
 	/**
 	 * Creates an {@code outcome} {@code Tag} derived from the
-	 * {@link ClientHttpResponse#getRawStatusCode() status} of the given {@code response}.
+	 * {@link ClientHttpResponse#getStatusCode() status} of the given {@code response}.
 	 * @param response the response
 	 * @return the outcome tag
 	 * @since 2.2.0
@@ -155,16 +128,13 @@ public final class RestTemplateExchangeTags {
 	public static Tag outcome(ClientHttpResponse response) {
 		try {
 			if (response != null) {
-				HttpStatus.Series series = HttpStatus.Series.resolve(response.getRawStatusCode());
-				if (series != null) {
-					return SERIES_OUTCOMES.getOrDefault(series, OUTCOME_UNKNOWN);
-				}
+				return Outcome.forStatus(response.getStatusCode().value()).asTag();
 			}
 		}
-		catch (IOException | IllegalArgumentException ex) {
+		catch (IOException ex) {
 			// Continue
 		}
-		return OUTCOME_UNKNOWN;
+		return Outcome.UNKNOWN.asTag();
 	}
 
 }

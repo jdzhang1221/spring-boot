@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,9 +18,8 @@ package org.springframework.boot.autoconfigure.data.mongo;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
-import java.util.Set;
 
-import com.mongodb.MongoClient;
+import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import org.junit.jupiter.api.Test;
 
@@ -31,24 +30,22 @@ import org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoCon
 import org.springframework.boot.autoconfigure.data.mongo.city.City;
 import org.springframework.boot.autoconfigure.data.mongo.country.Country;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
-import org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLoggingListener;
 import org.springframework.boot.autoconfigure.mongo.MongoAutoConfiguration;
-import org.springframework.boot.logging.LogLevel;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
+import org.springframework.data.domain.ManagedTypes;
 import org.springframework.data.mapping.model.CamelCaseAbbreviatingFieldNamingStrategy;
 import org.springframework.data.mapping.model.FieldNamingStrategy;
 import org.springframework.data.mapping.model.PropertyNameFieldNamingStrategy;
-import org.springframework.data.mongodb.MongoDbFactory;
+import org.springframework.data.mongodb.MongoDatabaseFactory;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.SimpleMongoClientDbFactory;
-import org.springframework.data.mongodb.core.SimpleMongoDbFactory;
+import org.springframework.data.mongodb.core.SimpleMongoClientDatabaseFactory;
 import org.springframework.data.mongodb.core.convert.MongoCustomConversions;
-import org.springframework.data.mongodb.core.mapping.BasicMongoPersistentEntity;
 import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
+import org.springframework.data.mongodb.core.mapping.MongoPersistentEntity;
 import org.springframework.data.mongodb.core.mapping.MongoPersistentProperty;
 import org.springframework.data.mongodb.gridfs.GridFsTemplate;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -60,13 +57,13 @@ import static org.assertj.core.api.Assertions.assertThat;
  *
  * @author Josh Long
  * @author Oliver Gierke
+ * @author Mark Paluch
  */
 class MongoDataAutoConfigurationTests {
 
 	private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
 			.withConfiguration(AutoConfigurations.of(PropertyPlaceholderAutoConfiguration.class,
-					MongoAutoConfiguration.class, MongoDataAutoConfiguration.class))
-			.withInitializer(new ConditionEvaluationReportLoggingListener(LogLevel.INFO));
+					MongoAutoConfiguration.class, MongoDataAutoConfiguration.class));
 
 	@Test
 	void templateExists() {
@@ -74,9 +71,22 @@ class MongoDataAutoConfigurationTests {
 	}
 
 	@Test
-	void gridFsTemplateExists() {
-		this.contextRunner.withPropertyValues("spring.data.mongodb.gridFsDatabase:grid")
-				.run((context) -> assertThat(context).hasSingleBean(GridFsTemplate.class));
+	void whenGridFsDatabaseIsConfiguredThenGridFsTemplateIsAutoConfiguredAndUsesIt() {
+		this.contextRunner.withPropertyValues("spring.data.mongodb.gridfs.database:grid").run((context) -> {
+			assertThat(context).hasSingleBean(GridFsTemplate.class);
+			GridFsTemplate template = context.getBean(GridFsTemplate.class);
+			MongoDatabaseFactory factory = (MongoDatabaseFactory) ReflectionTestUtils.getField(template, "dbFactory");
+			assertThat(factory.getMongoDatabase().getName()).isEqualTo("grid");
+		});
+	}
+
+	@Test
+	void whenGridFsBucketIsConfiguredThenGridFsTemplateIsAutoConfiguredAndUsesIt() {
+		this.contextRunner.withPropertyValues("spring.data.mongodb.gridfs.bucket:test-bucket").run((context) -> {
+			assertThat(context).hasSingleBean(GridFsTemplate.class);
+			GridFsTemplate template = context.getBean(GridFsTemplate.class);
+			assertThat(template).hasFieldOrPropertyWithValue("bucket", "test-bucket");
+		});
 	}
 
 	@Test
@@ -127,10 +137,18 @@ class MongoDataAutoConfigurationTests {
 	}
 
 	@Test
-	void customAutoIndexCreation() {
-		this.contextRunner.withPropertyValues("spring.data.mongodb.autoIndexCreation:false").run((context) -> {
+	void defaultAutoIndexCreation() {
+		this.contextRunner.run((context) -> {
 			MongoMappingContext mappingContext = context.getBean(MongoMappingContext.class);
 			assertThat(mappingContext.isAutoIndexCreation()).isFalse();
+		});
+	}
+
+	@Test
+	void customAutoIndexCreation() {
+		this.contextRunner.withPropertyValues("spring.data.mongodb.autoIndexCreation:true").run((context) -> {
+			MongoMappingContext mappingContext = context.getBean(MongoMappingContext.class);
+			assertThat(mappingContext.isAutoIndexCreation()).isTrue();
 		});
 	}
 
@@ -142,13 +160,11 @@ class MongoDataAutoConfigurationTests {
 	}
 
 	@Test
-	@SuppressWarnings("unchecked")
-	void entityScanShouldSetInitialEntitySet() {
+	void entityScanShouldSetManagedTypes() {
 		this.contextRunner.withUserConfiguration(EntityScanConfig.class).run((context) -> {
 			MongoMappingContext mappingContext = context.getBean(MongoMappingContext.class);
-			Set<Class<?>> initialEntitySet = (Set<Class<?>>) ReflectionTestUtils.getField(mappingContext,
-					"initialEntitySet");
-			assertThat(initialEntitySet).containsOnly(City.class, Country.class);
+			ManagedTypes managedTypes = (ManagedTypes) ReflectionTestUtils.getField(mappingContext, "managedTypes");
+			assertThat(managedTypes.toList()).containsOnly(City.class, Country.class);
 		});
 
 	}
@@ -157,7 +173,7 @@ class MongoDataAutoConfigurationTests {
 	void registersDefaultSimpleTypesWithMappingContext() {
 		this.contextRunner.run((context) -> {
 			MongoMappingContext mappingContext = context.getBean(MongoMappingContext.class);
-			BasicMongoPersistentEntity<?> entity = mappingContext.getPersistentEntity(Sample.class);
+			MongoPersistentEntity<?> entity = mappingContext.getPersistentEntity(Sample.class);
 			MongoPersistentProperty dateProperty = entity.getPersistentProperty("date");
 			assertThat(dateProperty.isEntity()).isFalse();
 		});
@@ -172,31 +188,30 @@ class MongoDataAutoConfigurationTests {
 	}
 
 	@Test
-	void createsMongoDbFactoryForPreferredMongoClient() {
+	void createsMongoDatabaseFactoryForPreferredMongoClient() {
 		this.contextRunner.run((context) -> {
-			MongoDbFactory dbFactory = context.getBean(MongoDbFactory.class);
-			assertThat(dbFactory).isInstanceOf(SimpleMongoDbFactory.class);
+			MongoDatabaseFactory dbFactory = context.getBean(MongoDatabaseFactory.class);
+			assertThat(dbFactory).isInstanceOf(SimpleMongoClientDatabaseFactory.class);
 		});
 	}
 
 	@Test
-	void createsMongoDbFactoryForFallbackMongoClient() {
+	void createsMongoDatabaseFactoryForFallbackMongoClient() {
 		this.contextRunner.withUserConfiguration(FallbackMongoClientConfiguration.class).run((context) -> {
-			MongoDbFactory dbFactory = context.getBean(MongoDbFactory.class);
-			assertThat(dbFactory).isInstanceOf(SimpleMongoClientDbFactory.class);
+			MongoDatabaseFactory dbFactory = context.getBean(MongoDatabaseFactory.class);
+			assertThat(dbFactory).isInstanceOf(SimpleMongoClientDatabaseFactory.class);
 		});
 	}
 
 	@Test
-	void autoConfiguresIfUserProvidesMongoDbFactoryButNoClient() {
-		this.contextRunner.withUserConfiguration(MongoDbFactoryConfiguration.class)
+	void autoConfiguresIfUserProvidesMongoDatabaseFactoryButNoClient() {
+		this.contextRunner.withUserConfiguration(MongoDatabaseFactoryConfiguration.class)
 				.run((context) -> assertThat(context).hasSingleBean(MongoTemplate.class));
 	}
 
-	@SuppressWarnings({ "unchecked", "rawtypes" })
 	private static void assertDomainTypesDiscovered(MongoMappingContext mappingContext, Class<?>... types) {
-		Set<Class> initialEntitySet = (Set<Class>) ReflectionTestUtils.getField(mappingContext, "initialEntitySet");
-		assertThat(initialEntitySet).containsOnly(types);
+		ManagedTypes managedTypes = (ManagedTypes) ReflectionTestUtils.getField(mappingContext, "managedTypes");
+		assertThat(managedTypes.toList()).containsOnly(types);
 	}
 
 	@Configuration(proxyBeanMethods = false)
@@ -226,11 +241,11 @@ class MongoDataAutoConfigurationTests {
 	}
 
 	@Configuration(proxyBeanMethods = false)
-	static class MongoDbFactoryConfiguration {
+	static class MongoDatabaseFactoryConfiguration {
 
 		@Bean
-		MongoDbFactory mongoDbFactory() {
-			return new SimpleMongoClientDbFactory(MongoClients.create(), "test");
+		MongoDatabaseFactory mongoDatabaseFactory() {
+			return new SimpleMongoClientDatabaseFactory(MongoClients.create(), "test");
 		}
 
 	}

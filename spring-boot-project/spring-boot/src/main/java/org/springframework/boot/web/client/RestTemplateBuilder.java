@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2020 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,13 +29,18 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import reactor.netty.http.client.HttpClientRequest;
 
+import org.springframework.aot.hint.RuntimeHints;
+import org.springframework.aot.hint.RuntimeHintsRegistrar;
+import org.springframework.aot.hint.TypeReference;
 import org.springframework.beans.BeanUtils;
+import org.springframework.context.annotation.ImportRuntimeHints;
 import org.springframework.http.client.AbstractClientHttpRequestFactoryWrapper;
 import org.springframework.http.client.ClientHttpRequest;
 import org.springframework.http.client.ClientHttpRequestFactory;
@@ -56,7 +61,7 @@ import org.springframework.web.util.UriTemplateHandler;
  * converters}, {@link #errorHandler(ResponseErrorHandler) error handlers} and
  * {@link #uriTemplateHandler(UriTemplateHandler) UriTemplateHandlers}.
  * <p>
- * By default the built {@link RestTemplate} will attempt to use the most suitable
+ * By default, the built {@link RestTemplate} will attempt to use the most suitable
  * {@link ClientHttpRequestFactory}, call {@link #detectRequestFactory(boolean)
  * detectRequestFactory(false)} if you prefer to keep the default. In a typical
  * auto-configured Spring Boot application this builder is available as a bean and can be
@@ -71,6 +76,7 @@ import org.springframework.web.util.UriTemplateHandler;
  * @author Ilya Lukyanovich
  * @since 1.4.0
  */
+@ImportRuntimeHints(RestTemplateBuilder.RestTemplateBuilderRuntimeHints.class)
 public class RestTemplateBuilder {
 
 	private final RequestFactoryCustomizer requestFactoryCustomizer;
@@ -438,7 +444,7 @@ public class RestTemplateBuilder {
 	}
 
 	/**
-	 * Sets if the underling {@link ClientHttpRequestFactory} should buffer the
+	 * Sets if the underlying {@link ClientHttpRequestFactory} should buffer the
 	 * {@linkplain ClientHttpRequest#getBody() request body} internally.
 	 * @param bufferRequestBody value of the bufferRequestBody parameter
 	 * @return a new builder instance.
@@ -586,7 +592,7 @@ public class RestTemplateBuilder {
 	 * @see #configure(RestTemplate)
 	 */
 	public RestTemplate build() {
-		return build(RestTemplate.class);
+		return configure(new RestTemplate());
 	}
 
 	/**
@@ -615,7 +621,7 @@ public class RestTemplateBuilder {
 		if (requestFactory != null) {
 			restTemplate.setRequestFactory(requestFactory);
 		}
-		addClientHttpRequestFactoryWrapper(restTemplate);
+		addClientHttpRequestInitializer(restTemplate);
 		if (!CollectionUtils.isEmpty(this.messageConverters)) {
 			restTemplate.setMessageConverters(new ArrayList<>(this.messageConverters));
 		}
@@ -659,24 +665,12 @@ public class RestTemplateBuilder {
 		return requestFactory;
 	}
 
-	private void addClientHttpRequestFactoryWrapper(RestTemplate restTemplate) {
+	private void addClientHttpRequestInitializer(RestTemplate restTemplate) {
 		if (this.basicAuthentication == null && this.defaultHeaders.isEmpty() && this.requestCustomizers.isEmpty()) {
 			return;
 		}
-		List<ClientHttpRequestInterceptor> interceptors = null;
-		if (!restTemplate.getInterceptors().isEmpty()) {
-			// Stash and clear the interceptors so we can access the real factory
-			interceptors = new ArrayList<>(restTemplate.getInterceptors());
-			restTemplate.getInterceptors().clear();
-		}
-		ClientHttpRequestFactory requestFactory = restTemplate.getRequestFactory();
-		ClientHttpRequestFactory wrapper = new RestTemplateBuilderClientHttpRequestFactoryWrapper(requestFactory,
-				this.basicAuthentication, this.defaultHeaders, this.requestCustomizers);
-		restTemplate.setRequestFactory(wrapper);
-		// Restore the original interceptors
-		if (interceptors != null) {
-			restTemplate.getInterceptors().addAll(interceptors);
-		}
+		restTemplate.getClientHttpRequestInitializers().add(new RestTemplateBuilderClientHttpRequestInitializer(
+				this.basicAuthentication, this.defaultHeaders, this.requestCustomizers));
 	}
 
 	@SuppressWarnings("unchecked")
@@ -797,6 +791,22 @@ public class RestTemplateBuilder {
 
 		private void invoke(ClientHttpRequestFactory requestFactory, Method method, Object... parameters) {
 			ReflectionUtils.invokeMethod(method, requestFactory, parameters);
+		}
+
+	}
+
+	static class RestTemplateBuilderRuntimeHints implements RuntimeHintsRegistrar {
+
+		@Override
+		public void registerHints(RuntimeHints hints, ClassLoader classLoader) {
+			hints.reflection().registerField(Objects.requireNonNull(
+					ReflectionUtils.findField(AbstractClientHttpRequestFactoryWrapper.class, "requestFactory")));
+			ClientHttpRequestFactorySupplier.ClientHttpRequestFactorySupplierRuntimeHints.registerHints(hints,
+					classLoader, (hint) -> {
+						hint.withMethod("setConnectTimeout", TypeReference.listOf(int.class));
+						hint.withMethod("setReadTimeout", TypeReference.listOf(int.class));
+						hint.withMethod("setBufferRequestBody", TypeReference.listOf(boolean.class));
+					});
 		}
 
 	}

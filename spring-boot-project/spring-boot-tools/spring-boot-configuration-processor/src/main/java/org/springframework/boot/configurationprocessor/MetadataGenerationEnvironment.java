@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,9 +21,12 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.annotation.processing.Messager;
 import javax.annotation.processing.ProcessingEnvironment;
@@ -60,7 +63,7 @@ class MetadataGenerationEnvironment {
 		excludes.add("java.io.PrintWriter");
 		excludes.add("java.lang.ClassLoader");
 		excludes.add("java.util.concurrent.ThreadFactory");
-		excludes.add("javax.jms.XAConnectionFactory");
+		excludes.add("jakarta.jms.XAConnectionFactory");
 		excludes.add("javax.sql.DataSource");
 		excludes.add("javax.sql.XADataSource");
 		excludes.add("org.apache.tomcat.jdbc.pool.PoolConfiguration");
@@ -86,15 +89,22 @@ class MetadataGenerationEnvironment {
 
 	private final String deprecatedConfigurationPropertyAnnotation;
 
+	private final String constructorBindingAnnotation;
+
 	private final String defaultValueAnnotation;
 
-	private final String endpointAnnotation;
+	private final Set<String> endpointAnnotations;
 
 	private final String readOperationAnnotation;
 
+	private final String nameAnnotation;
+
+	private final String autowiredAnnotation;
+
 	MetadataGenerationEnvironment(ProcessingEnvironment environment, String configurationPropertiesAnnotation,
 			String nestedConfigurationPropertyAnnotation, String deprecatedConfigurationPropertyAnnotation,
-			String defaultValueAnnotation, String endpointAnnotation, String readOperationAnnotation) {
+			String constructorBindingAnnotation, String autowiredAnnotation, String defaultValueAnnotation,
+			Set<String> endpointAnnotations, String readOperationAnnotation, String nameAnnotation) {
 		this.typeUtils = new TypeUtils(environment);
 		this.elements = environment.getElementUtils();
 		this.messager = environment.getMessager();
@@ -102,9 +112,12 @@ class MetadataGenerationEnvironment {
 		this.configurationPropertiesAnnotation = configurationPropertiesAnnotation;
 		this.nestedConfigurationPropertyAnnotation = nestedConfigurationPropertyAnnotation;
 		this.deprecatedConfigurationPropertyAnnotation = deprecatedConfigurationPropertyAnnotation;
+		this.constructorBindingAnnotation = constructorBindingAnnotation;
+		this.autowiredAnnotation = autowiredAnnotation;
 		this.defaultValueAnnotation = defaultValueAnnotation;
-		this.endpointAnnotation = endpointAnnotation;
+		this.endpointAnnotations = endpointAnnotations;
 		this.readOperationAnnotation = readOperationAnnotation;
+		this.nameAnnotation = nameAnnotation;
 	}
 
 	private static FieldValuesParser resolveFieldValuesParser(ProcessingEnvironment env) {
@@ -165,9 +178,17 @@ class MetadataGenerationEnvironment {
 			reason = (String) elementValues.get("reason");
 			replacement = (String) elementValues.get("replacement");
 		}
-		reason = "".equals(reason) ? null : reason;
-		replacement = "".equals(replacement) ? null : replacement;
+		reason = (reason == null || reason.isEmpty()) ? null : reason;
+		replacement = (replacement == null || replacement.isEmpty()) ? null : replacement;
 		return new ItemDeprecation(reason, replacement);
+	}
+
+	boolean hasConstructorBindingAnnotation(ExecutableElement element) {
+		return hasAnnotation(element, this.constructorBindingAnnotation);
+	}
+
+	boolean hasAutowiredAnnotation(ExecutableElement element) {
+		return hasAnnotation(element, this.autowiredAnnotation);
 	}
 
 	boolean hasAnnotation(Element element, String type) {
@@ -183,6 +204,38 @@ class MetadataGenerationEnvironment {
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Collect the annotations that are annotated or meta-annotated with the specified
+	 * {@link TypeElement annotation}.
+	 * @param element the element to inspect
+	 * @param annotationType the annotation to discover
+	 * @return the annotations that are annotated or meta-annotated with this annotation
+	 */
+	List<Element> getElementsAnnotatedOrMetaAnnotatedWith(Element element, TypeElement annotationType) {
+		LinkedList<Element> stack = new LinkedList<>();
+		stack.push(element);
+		collectElementsAnnotatedOrMetaAnnotatedWith(annotationType, stack);
+		stack.removeFirst();
+		return Collections.unmodifiableList(stack);
+	}
+
+	private boolean collectElementsAnnotatedOrMetaAnnotatedWith(TypeElement annotationType, LinkedList<Element> stack) {
+		Element element = stack.peekLast();
+		for (AnnotationMirror annotation : this.elements.getAllAnnotationMirrors(element)) {
+			Element annotationElement = annotation.getAnnotationType().asElement();
+			if (!stack.contains(annotationElement)) {
+				stack.addLast(annotationElement);
+				if (annotationElement.equals(annotationType)) {
+					return true;
+				}
+				if (!collectElementsAnnotatedOrMetaAnnotatedWith(annotationType, stack)) {
+					stack.removeLast();
+				}
+			}
+		}
+		return false;
 	}
 
 	Map<String, Object> getAnnotationElementValues(AnnotationMirror annotation) {
@@ -218,12 +271,17 @@ class MetadataGenerationEnvironment {
 		return getAnnotation(element, this.defaultValueAnnotation);
 	}
 
-	TypeElement getEndpointAnnotationElement() {
-		return this.elements.getTypeElement(this.endpointAnnotation);
+	Set<TypeElement> getEndpointAnnotationElements() {
+		return this.endpointAnnotations.stream().map(this.elements::getTypeElement).filter(Objects::nonNull)
+				.collect(Collectors.toSet());
 	}
 
 	AnnotationMirror getReadOperationAnnotation(Element element) {
 		return getAnnotation(element, this.readOperationAnnotation);
+	}
+
+	AnnotationMirror getNameAnnotation(Element element) {
+		return getAnnotation(element, this.nameAnnotation);
 	}
 
 	boolean hasNullableAnnotation(Element element) {

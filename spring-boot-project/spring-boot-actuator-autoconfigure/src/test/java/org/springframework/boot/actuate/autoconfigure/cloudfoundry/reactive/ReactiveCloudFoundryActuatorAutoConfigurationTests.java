@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2021 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,14 +37,14 @@ import org.springframework.boot.actuate.autoconfigure.health.HealthEndpointAutoC
 import org.springframework.boot.actuate.autoconfigure.info.InfoContributorAutoConfiguration;
 import org.springframework.boot.actuate.autoconfigure.info.InfoEndpointAutoConfiguration;
 import org.springframework.boot.actuate.autoconfigure.web.server.ManagementContextAutoConfiguration;
+import org.springframework.boot.actuate.endpoint.ApiVersion;
 import org.springframework.boot.actuate.endpoint.EndpointId;
-import org.springframework.boot.actuate.endpoint.ExposableEndpoint;
 import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.actuate.endpoint.annotation.ReadOperation;
-import org.springframework.boot.actuate.endpoint.http.ActuatorMediaType;
 import org.springframework.boot.actuate.endpoint.web.EndpointMapping;
 import org.springframework.boot.actuate.endpoint.web.ExposableWebEndpoint;
 import org.springframework.boot.actuate.endpoint.web.WebOperation;
+import org.springframework.boot.actuate.endpoint.web.WebOperationRequestPredicate;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.context.PropertyPlaceholderAutoConfiguration;
 import org.springframework.boot.autoconfigure.http.HttpMessageConvertersAutoConfiguration;
@@ -79,6 +79,10 @@ import static org.mockito.Mockito.mock;
  * @author Madhura Bhave
  */
 class ReactiveCloudFoundryActuatorAutoConfigurationTests {
+
+	private static final String V2_JSON = ApiVersion.V2.getProducedMimeType().toString();
+
+	private static final String V3_JSON = ApiVersion.V3.getProducedMimeType().toString();
 
 	private final ReactiveWebApplicationContextRunner contextRunner = new ReactiveWebApplicationContextRunner()
 			.withConfiguration(AutoConfigurations.of(ReactiveSecurityAutoConfiguration.class,
@@ -120,7 +124,7 @@ class ReactiveCloudFoundryActuatorAutoConfigurationTests {
 				"vcap.application.cf_api:https://my-cloud-controller.com").run((context) -> {
 					WebTestClient webTestClient = WebTestClient.bindToApplicationContext(context).build();
 					webTestClient.get().uri("/cloudfoundryapplication").header("Content-Type",
-							ActuatorMediaType.V2_JSON + ";charset=UTF-8");
+							V2_JSON + ";charset=UTF-8");
 				});
 	}
 
@@ -207,7 +211,7 @@ class ReactiveCloudFoundryActuatorAutoConfigurationTests {
 				.run((context) -> {
 					CloudFoundryWebFluxEndpointHandlerMapping handlerMapping = getHandlerMapping(context);
 					Collection<ExposableWebEndpoint> endpoints = handlerMapping.getEndpoints();
-					List<EndpointId> endpointIds = endpoints.stream().map(ExposableEndpoint::getEndpointId)
+					List<EndpointId> endpointIds = endpoints.stream().map(ExposableWebEndpoint::getEndpointId)
 							.collect(Collectors.toList());
 					assertThat(endpointIds).contains(EndpointId.of("test"));
 				});
@@ -239,8 +243,7 @@ class ReactiveCloudFoundryActuatorAutoConfigurationTests {
 					ExposableWebEndpoint endpoint = endpoints.iterator().next();
 					assertThat(endpoint.getOperations()).hasSize(2);
 					WebOperation webOperation = findOperationWithRequestPath(endpoint, "health");
-					Object invoker = ReflectionTestUtils.getField(webOperation, "invoker");
-					assertThat(ReflectionTestUtils.getField(invoker, "target"))
+					assertThat(webOperation).extracting("invoker").extracting("target")
 							.isInstanceOf(CloudFoundryReactiveHealthEndpointWebExtension.class);
 				});
 	}
@@ -270,7 +273,8 @@ class ReactiveCloudFoundryActuatorAutoConfigurationTests {
 							"cloudFoundrySecurityService");
 					WebClient webClient = (WebClient) ReflectionTestUtils.getField(interceptorSecurityService,
 							"webClient");
-					webClient.get().uri("https://self-signed.badssl.com/").exchange().block(Duration.ofSeconds(30));
+					webClient.get().uri("https://self-signed.badssl.com/").retrieve().toBodilessEntity()
+							.block(Duration.ofSeconds(30));
 				});
 	}
 
@@ -286,8 +290,9 @@ class ReactiveCloudFoundryActuatorAutoConfigurationTests {
 							"cloudFoundrySecurityService");
 					WebClient webClient = (WebClient) ReflectionTestUtils.getField(interceptorSecurityService,
 							"webClient");
-					assertThatExceptionOfType(RuntimeException.class).isThrownBy(() -> webClient.get()
-							.uri("https://self-signed.badssl.com/").exchange().block(Duration.ofSeconds(30)))
+					assertThatExceptionOfType(RuntimeException.class)
+							.isThrownBy(() -> webClient.get().uri("https://self-signed.badssl.com/").retrieve()
+									.toBodilessEntity().block(Duration.ofSeconds(30)))
 							.withCauseInstanceOf(SSLException.class);
 				});
 	}
@@ -299,7 +304,8 @@ class ReactiveCloudFoundryActuatorAutoConfigurationTests {
 
 	private WebOperation findOperationWithRequestPath(ExposableWebEndpoint endpoint, String requestPath) {
 		for (WebOperation operation : endpoint.getOperations()) {
-			if (operation.getRequestPredicate().getPath().equals(requestPath)) {
+			WebOperationRequestPredicate predicate = operation.getRequestPredicate();
+			if (predicate.getPath().equals(requestPath) && predicate.getProduces().contains(V3_JSON)) {
 				return operation;
 			}
 		}

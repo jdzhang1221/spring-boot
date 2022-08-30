@@ -1,5 +1,5 @@
 /*
- * Copyright 2012-2019 the original author or authors.
+ * Copyright 2012-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,11 @@
 package org.springframework.boot.actuate.metrics.web.reactive.client;
 
 import java.io.IOException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.regex.Pattern;
 
 import io.micrometer.core.instrument.Tag;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatus.Series;
+import org.springframework.boot.actuate.metrics.http.Outcome;
 import org.springframework.http.client.reactive.ClientHttpRequest;
 import org.springframework.web.reactive.function.client.ClientRequest;
 import org.springframework.web.reactive.function.client.ClientResponse;
@@ -49,31 +45,7 @@ public final class WebClientExchangeTags {
 
 	private static final Pattern PATTERN_BEFORE_PATH = Pattern.compile("^https?://[^/]+/");
 
-	private static final Tag CLIENT_NAME_NONE = Tag.of("clientName", "none");
-
-	private static final Tag OUTCOME_UNKNOWN = Tag.of("outcome", "UNKNOWN");
-
-	private static final Tag OUTCOME_INFORMATIONAL = Tag.of("outcome", "INFORMATIONAL");
-
-	private static final Tag OUTCOME_SUCCESS = Tag.of("outcome", "SUCCESS");
-
-	private static final Tag OUTCOME_REDIRECTION = Tag.of("outcome", "REDIRECTION");
-
-	private static final Tag OUTCOME_CLIENT_ERROR = Tag.of("outcome", "CLIENT_ERROR");
-
-	private static final Tag OUTCOME_SERVER_ERROR = Tag.of("outcome", "SERVER_ERROR");
-
-	private static final Map<Series, Tag> SERIES_OUTCOMES;
-
-	static {
-		Map<Series, Tag> seriesOutcomes = new HashMap<>();
-		seriesOutcomes.put(Series.INFORMATIONAL, OUTCOME_INFORMATIONAL);
-		seriesOutcomes.put(Series.SUCCESSFUL, OUTCOME_SUCCESS);
-		seriesOutcomes.put(Series.REDIRECTION, OUTCOME_REDIRECTION);
-		seriesOutcomes.put(Series.CLIENT_ERROR, OUTCOME_CLIENT_ERROR);
-		seriesOutcomes.put(Series.SERVER_ERROR, OUTCOME_SERVER_ERROR);
-		SERIES_OUTCOMES = Collections.unmodifiableMap(seriesOutcomes);
-	}
+	private static final Tag CLIENT_NAME_NONE = Tag.of("client.name", "none");
 
 	private WebClientExchangeTags() {
 	}
@@ -94,7 +66,7 @@ public final class WebClientExchangeTags {
 	 * @return the uri tag
 	 */
 	public static Tag uri(ClientRequest request) {
-		String uri = (String) request.attribute(URI_TEMPLATE_ATTRIBUTE).orElseGet(() -> request.url().getPath());
+		String uri = (String) request.attribute(URI_TEMPLATE_ATTRIBUTE).orElseGet(() -> request.url().toString());
 		return Tag.of("uri", extractPath(uri));
 	}
 
@@ -105,59 +77,48 @@ public final class WebClientExchangeTags {
 
 	/**
 	 * Creates a {@code status} {@code Tag} derived from the
-	 * {@link ClientResponse#statusCode()} of the given {@code response}.
+	 * {@link ClientResponse#statusCode()} of the given {@code response} if available, the
+	 * thrown exception otherwise, or considers the request as Cancelled as a last resort.
 	 * @param response the response
-	 * @return the status tag
-	 */
-	public static Tag status(ClientResponse response) {
-		return Tag.of("status", String.valueOf(response.rawStatusCode()));
-	}
-
-	/**
-	 * Creates a {@code status} {@code Tag} derived from the exception thrown by the
-	 * client.
 	 * @param throwable the exception
 	 * @return the status tag
+	 * @since 2.3.0
 	 */
-	public static Tag status(Throwable throwable) {
-		return (throwable instanceof IOException) ? IO_ERROR : CLIENT_ERROR;
+	public static Tag status(ClientResponse response, Throwable throwable) {
+		if (response != null) {
+			return Tag.of("status", String.valueOf(response.statusCode().value()));
+		}
+		if (throwable != null) {
+			return (throwable instanceof IOException) ? IO_ERROR : CLIENT_ERROR;
+		}
+		return CLIENT_ERROR;
 	}
 
 	/**
-	 * Create a {@code clientName} {@code Tag} derived from the
+	 * Create a {@code client.name} {@code Tag} derived from the
 	 * {@link java.net.URI#getHost host} of the {@link ClientRequest#url() URL} of the
 	 * given {@code request}.
 	 * @param request the request
-	 * @return the clientName tag
+	 * @return the client.name tag
 	 */
 	public static Tag clientName(ClientRequest request) {
 		String host = request.url().getHost();
 		if (host == null) {
 			return CLIENT_NAME_NONE;
 		}
-		return Tag.of("clientName", host);
+		return Tag.of("client.name", host);
 	}
 
 	/**
 	 * Creates an {@code outcome} {@code Tag} derived from the
-	 * {@link ClientResponse#rawStatusCode() status} of the given {@code response}.
+	 * {@link ClientResponse#statusCode() status} of the given {@code response}.
 	 * @param response the response
 	 * @return the outcome tag
 	 * @since 2.2.0
 	 */
 	public static Tag outcome(ClientResponse response) {
-		try {
-			if (response != null) {
-				Series series = HttpStatus.Series.resolve(response.rawStatusCode());
-				if (series != null) {
-					return SERIES_OUTCOMES.getOrDefault(series, OUTCOME_UNKNOWN);
-				}
-			}
-		}
-		catch (IllegalArgumentException ex) {
-			// Continue
-		}
-		return OUTCOME_UNKNOWN;
+		Outcome outcome = (response != null) ? Outcome.forStatus(response.statusCode().value()) : Outcome.UNKNOWN;
+		return outcome.asTag();
 	}
 
 }
